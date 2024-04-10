@@ -14,10 +14,6 @@ Support for the ShotGrid Write Node in Nuke.
 |------------------|--------------|----------------|
 | -                | v0.14.28     | -              |
 
-**ShotGrid fields:** -
-
-**Frameworks:** -
-
 ## Configuration
 
 ### Lists
