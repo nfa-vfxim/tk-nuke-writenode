@@ -291,42 +291,81 @@ class NukeWriteNodeHandler(object):
             # If placeholder node starts with ShotGridWriteNodePlaceholder, we
             # know this is the node we want to replace with a
             # correct write node
-            if placeholder_node.name().startswith(
+            if not placeholder_node.name().startswith(
                 "ShotGridWriteNodePlaceholder"
             ):
-                # Get write node settings
-                write_node_settings = self.__get_write_node_options()
+                continue
 
-                # Get provided data from metadata node
-                metadata = placeholder_node.metadata()
-                category = metadata.get("category")
-                output_name = metadata.get("output")
-                data_type = metadata.get("data_type")
-
-                # Get position and input data to replace node
-                placeholder_xpos = placeholder_node.xpos()
-                placeholder_ypos = placeholder_node.ypos()
-                placeholder_input = placeholder_node.input(0).name()
-
-                # Delete the old node
-                nuke.delete(placeholder_node)
-
-                # Create write node
-                write_node = self.__create_write(
-                    write_node_settings, category, output_name, data_type
+            try:
+                self.__convert_placeholder(placeholder_node)
+            except Exception as e:
+                logger.warning(
+                    "Could not convert %s: %s"
+                    % (placeholder_node.name(), str(e))
                 )
 
-                # Set position data
-                write_node["xpos"].setValue(placeholder_xpos)
-                write_node["ypos"].setValue(placeholder_ypos)
-                write_node.setInput(0, nuke.toNode(placeholder_input))
+    def __convert_placeholder(self, placeholder_node):
+        """Replace one placeholder node with a ShotGrid write node, keeping
+        its position and all connections (input and downstream nodes).
 
-            else:
-                # If no nodes have been found, skip conversion
-                logger.debug(
-                    "No ShotGrid Write Node placeholder node found, "
-                    "skipping conversion."
-                )
+        Args:
+            placeholder_node (attribute): ModifyMetaData placeholder node
+
+        Returns:
+            attribute: created write node
+        """
+        # Get write node settings
+        write_node_settings = self.__get_write_node_options()
+
+        # Get provided data from metadata node. Read the knob directly so
+        # it also works when the placeholder has no (valid) input.
+        metadata = {}
+        for key, value in re.findall(
+            r"\{set\s+(\S+)\s+\"?([^}\"]*)\"?\}",
+            placeholder_node["metadata"].toScript(),
+        ):
+            metadata[key] = value.strip()
+        if not metadata.get("category"):
+            metadata = placeholder_node.metadata()
+        category = metadata.get("category")
+        output_name = metadata.get("output")
+        data_type = self.__resolve_data_type(
+            category, metadata.get("data_type")
+        )
+
+        # Get position and connections to replace node
+        placeholder_xpos = placeholder_node.xpos()
+        placeholder_ypos = placeholder_node.ypos()
+        placeholder_input = placeholder_node.input(0)
+
+        downstream = []
+        for dependent in placeholder_node.dependent(
+            nuke.INPUTS | nuke.HIDDEN_INPUTS, forceEvaluate=False
+        ):
+            for index in range(dependent.inputs()):
+                if dependent.input(index) == placeholder_node:
+                    downstream.append((dependent, index))
+
+        # Deselect everything, so the new node is not auto-connected
+        for node in nuke.selectedNodes():
+            node["selected"].setValue(False)
+
+        # Delete the old node
+        nuke.delete(placeholder_node)
+
+        # Create write node
+        write_node = self.__create_write(
+            write_node_settings, category, output_name, data_type
+        )
+
+        # Restore position and connections
+        write_node["xpos"].setValue(placeholder_xpos)
+        write_node["ypos"].setValue(placeholder_ypos)
+        write_node.setInput(0, placeholder_input)
+        for dependent, index in downstream:
+            dependent.setInput(index, write_node)
+
+        return write_node
 
     def add_callbacks(self):
         """Adds callbacks on script load"""
