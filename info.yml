@@ -64,6 +64,15 @@ configuration:
     description: "Name to use for the output of the Nuke script"
     default_value: main
 
+  renamed_write_nodes:
+    type: dict
+    description: "Old write node profile names mapped to their new name, so
+                  existing scripts keep working after a profile is renamed.
+                  Either {old_name: new_name} or, per category,
+                  {category_name: {old_name: new_name}}."
+    allows_empty: True
+    default_value: {}
+
 
 # this tk_nuke_writenode works in all engines - it does not contain
 # any host application specific commands

@@ -331,12 +331,110 @@ class NukeWriteNodeHandler(object):
     def add_callbacks(self):
         """Adds callbacks on script load"""
         nuke.addOnScriptLoad(self.convert_placeholder_nodes, nodeClass="Root")
+        nuke.addOnScriptLoad(self.sync_write_nodes, nodeClass="Root")
 
     def remove_callbacks(self):
         """Removes callbacks on destroy"""
         nuke.removeOnScriptLoad(
             self.convert_placeholder_nodes, nodeClass="Root"
         )
+        nuke.removeOnScriptLoad(self.sync_write_nodes, nodeClass="Root")
+
+    def sync_write_nodes(self):
+        """Bring every ShotGrid write node in the script in line with the
+        current pipeline configuration.
+
+        - Renamed write node profiles (setting ``renamed_write_nodes``) are
+          mapped to their new name.
+        - The data menu is refreshed with the profiles currently configured.
+        - The settings of the profile (compression, datatype, ...) are applied
+          to the internal Write node, so artists always see what will be
+          rendered. The channels knob is left alone, as artists may change it.
+        """
+        write_node_settings = self.__get_write_node_options()
+
+        for node_name in self.get_all_write_nodes():
+            node = nuke.toNode(node_name)
+            if not node:
+                continue
+
+            try:
+                category = node["category"].value()
+                data_types = write_node_settings.get(category)
+                if not data_types:
+                    logger.warning(
+                        "Write node %s uses unknown category %s, skipping."
+                        % (node_name, category)
+                    )
+                    continue
+
+                data_type = self.__resolve_data_type(
+                    category, node["dataType"].value()
+                )
+
+                # Refresh the available options and set the (new) name
+                node["dataType"].setValues(data_types)
+                if data_type in data_types:
+                    node["dataType"].setValue(data_type)
+                else:
+                    logger.warning(
+                        "Write node %s uses unknown data type %s."
+                        % (node_name, data_type)
+                    )
+                    continue
+
+                configuration = self.__get_node_settings(node)
+                if not configuration:
+                    continue
+
+                with node:
+                    write_node = nuke.toNode("Write1")
+                    write_node["file_type"].setValue(
+                        configuration.get("file_type")
+                    )
+                    for knob, setting in configuration.get(
+                        "settings", {}
+                    ).items():
+                        if knob == "channels":
+                            continue
+                        try:
+                            write_node[knob].setValue(setting)
+                        except Exception as e:
+                            logger.debug(
+                                "Could not apply %s to the knob %s, because %s"
+                                % (setting, knob, str(e))
+                            )
+
+                logger.debug("Synced write node %s" % node_name)
+
+            except Exception as e:
+                logger.warning(
+                    "Could not sync write node %s: %s" % (node_name, str(e))
+                )
+
+    def __resolve_data_type(self, category, data_type):
+        """Map an old (renamed) write node profile name to its current name.
+
+        Args:
+            category (str): category of the write node
+            data_type (str): profile name stored on the node
+
+        Returns:
+            str: current profile name
+        """
+        renamed = self.app.get_setting("renamed_write_nodes") or {}
+
+        # Allow a per-category mapping ({category: {old: new}}) as well as
+        # a global one ({old: new})
+        category_map = renamed.get(category)
+        if isinstance(category_map, dict) and data_type in category_map:
+            return category_map[data_type]
+
+        new_name = renamed.get(data_type)
+        if isinstance(new_name, str):
+            return new_name
+
+        return data_type
 
     def update_read_nodes(self):
         """Updates all read nodes to use published path instead
@@ -718,7 +816,9 @@ class NukeWriteNodeHandler(object):
 
         # Get required information to get settings
         write_category = node["category"].value()
-        data_type = node["dataType"].value()
+        data_type = self.__resolve_data_type(
+            write_category, node["dataType"].value()
+        )
 
         categories = self.app.get_setting("categories")
 
