@@ -332,6 +332,8 @@ class NukeWriteNodeHandler(object):
         """Adds callbacks on script load"""
         nuke.addOnScriptLoad(self.convert_placeholder_nodes, nodeClass="Root")
         nuke.addOnScriptLoad(self.sync_write_nodes, nodeClass="Root")
+        nuke.addOnScriptSave(self.update_all_paths, nodeClass="Root")
+        nuke.addKnobChanged(self._on_controls_changed, nodeClass="NoOp")
 
     def remove_callbacks(self):
         """Removes callbacks on destroy"""
@@ -339,6 +341,62 @@ class NukeWriteNodeHandler(object):
             self.convert_placeholder_nodes, nodeClass="Root"
         )
         nuke.removeOnScriptLoad(self.sync_write_nodes, nodeClass="Root")
+        nuke.removeOnScriptSave(self.update_all_paths, nodeClass="Root")
+        nuke.removeKnobChanged(self._on_controls_changed, nodeClass="NoOp")
+
+    def _on_controls_changed(self):
+        """knobChanged callback for the sgWriteControls NoOp inside every
+        ShotGrid write node. Applies the new profile and path when the
+        data type is changed."""
+        try:
+            controls = nuke.thisNode()
+            if controls.name() != "sgWriteControls":
+                return
+            if nuke.thisKnob().name() != "dataType":
+                return
+            parent_name = controls.fullName().rsplit(".", 1)[0]
+            parent = nuke.toNode(parent_name) if "." in controls.fullName() else None
+            if parent is None or "isShotGridWriteNode" not in parent.knobs():
+                return
+            self.knob_changed(parent, nuke.thisKnob())
+            self.update_path(parent)
+        except Exception as e:
+            logger.debug("Write node knobChanged failed: %s" % str(e))
+
+    def update_path(self, node):
+        """Calculate the render path for a ShotGrid write node and set it on
+        the internal Write, so artists see the correct path straight away.
+
+        Args:
+            node (attribute): ShotGrid write node
+
+        Returns:
+            bool: True if the path could be set
+        """
+        try:
+            configuration = self.__get_node_settings(node)
+            if not configuration:
+                return False
+            render_path = self.__calculate_path(node, configuration)
+        except Exception as e:
+            # Script not saved in a ShotGrid work area yet, etc.
+            logger.debug(
+                "Could not calculate path for %s: %s" % (node.name(), str(e))
+            )
+            return False
+
+        with node:
+            write_node = nuke.toNode("Write1")
+            if write_node["file"].value() != render_path:
+                write_node["file"].setValue(render_path)
+        return True
+
+    def update_all_paths(self):
+        """Set the render path on every ShotGrid write node in the script."""
+        for node_name in self.get_all_write_nodes():
+            node = nuke.toNode(node_name)
+            if node:
+                self.update_path(node)
 
     def sync_write_nodes(self):
         """Bring every ShotGrid write node in the script in line with the
@@ -404,6 +462,8 @@ class NukeWriteNodeHandler(object):
                                 "Could not apply %s to the knob %s, because %s"
                                 % (setting, knob, str(e))
                             )
+
+                self.update_path(node)
 
                 logger.debug("Synced write node %s" % node_name)
 
@@ -699,6 +759,8 @@ class NukeWriteNodeHandler(object):
                         "Could not apply %s to the knob %s, because %s"
                         % (setting, knob, str(e))
                     )
+
+        self.update_path(created_write)
 
         return created_write
 
