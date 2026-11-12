@@ -484,6 +484,10 @@ class NukeWriteNodeHandler(object):
                 if not configuration:
                     continue
 
+                tile_color = configuration.get("tile_color")
+                if tile_color is not None:
+                    node["tile_color"].setValue(tile_color)
+
                 with node:
                     write_node = nuke.toNode("Write1")
                     write_node["file_type"].setValue(
