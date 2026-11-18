@@ -143,6 +143,30 @@ class TkNukeWriteNode(Application):
         is_published = self.handler.get_published_status(node)
         return is_published
 
+    def get_last_rendered_path(self, node):
+        """Get the path the node rendered to the last time (local or farm).
+        The current file path is already versioned up after a farm
+        submission, so use this to find the rendered frames.
+
+        Args:
+            node (object): ShotGrid write node
+
+        Returns:
+            str: last rendered path, empty string if unknown
+        """
+        return self.handler.get_last_rendered_path(node)
+
+    def get_path_published_status(self, render_path):
+        """Check if a render path is already published
+
+        Args:
+            render_path (str): render path to check
+
+        Returns:
+            bool: returns True if the path is published, False if not
+        """
+        return self.handler.is_path_published(render_path)
+
     def get_colorspace(self, node):
         """Get the colorspace the selected node is rendering
 

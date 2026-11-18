@@ -303,7 +303,7 @@ class NukeWriteNodeHandler(object):
         """
         paths = []
         try:
-            if self.__is_published(render_path):
+            if self.is_path_published(render_path):
                 paths.append(self.__get_published_path(node, render_path))
         except Exception as e:
             logger.debug(
@@ -801,9 +801,9 @@ class NukeWriteNodeHandler(object):
             bool: If there is a publish existing it will return
             "True", otherwise return a "False" value
         """
-        return self.__is_published(node["file"].value())
+        return self.is_path_published(node["file"].value())
 
-    def __is_published(self, render_path):
+    def is_path_published(self, render_path):
         """Check on ShotGrid if there is a publish on the project with the
         same file name as the render path.
 
